@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # Serviço da Aplicação Quarkus
+  app:
+    # Nome do container
+    container_name: quarkus-app
+    # Constrói a imagem Docker a partir do Dockerfile na pasta atual (o ponto '.')
+    build: .
+    # Mapeia a porta do container (8080) para a porta da sua máquina (8080)
+    ports:
+      - "8080:8080"
+    # Garante que o BD esteja pronto antes de iniciar a aplicação
+    depends_on:
+      - db
+    # Variáveis de ambiente que a aplicação Quarkus usará para conectar ao BD
+    environment:
+      # As propriedades de configuração do Quarkus devem ser definidas aqui
+      # Verifique seu arquivo application.properties para os nomes corretos
+      # Exemplo para a extensão Panache com JDBC:
+      #quarkus.datasource.db-kind: postgresql
+      #quarkus.datasource.username: ${POSTGRES_USER}
+      #quarkus.datasource.password: ${POSTGRES_PASSWORD}
+      #quarkus.datasource.jdbc.url: jdbc:postgresql://db:5432/${POSTGRES_DB}
+      
+      QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      # Usa o nome do serviço 'db' definido abaixo como hostname
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
+    
+    # Reinicia o container se ele parar (exceto se for manualmente interrompido)
+    restart: always
+
+  # Serviço do Banco de Dados PostgreSQL
+  db:
+    container_name: postgres-db
+    image: postgres:15-alpine # Imagem oficial do PostgreSQL
+    # Mapeia a porta do container (5432) para a porta da sua máquina (5432)
+    # Útil para acessar o BD com ferramentas externas como o DBeaver ou psql
+    ports:
+      - "5432:5432"
+    # Variáveis de ambiente para configurar o PostgreSQL
+    environment:
+      # Use variáveis de ambiente para valores sensíveis
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Persistência de dados: mapeia um volume da sua máquina para o diretório de dados do BD
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+# Define o volume para persistir os dados do PostgreSQL
+volumes:
+  postgres_data:
