@@ -1,165 +1,106 @@
-Fantástico! A containerização é um passo essencial no DevOps para garantir portabilidade e isolamento da sua aplicação Quarkus e do PostgreSQL.
+# Como Containerizar a Aplicação Quarkus com PostgreSQL
 
-Aqui está o tutorial passo a passo, incluindo o Dockerfile para o Quarkus e o docker-compose.yml para orquestrar os dois serviços.
+Este tutorial mostra como empacotar e executar a aplicação Quarkus em um container Docker, juntamente com um banco de dados PostgreSQL, utilizando o Docker Compose.
 
-🚀 Tutorial: Containerizando Quarkus e PostgreSQL
-O Quarkus geralmente gera um Dockerfile.jvm e um Dockerfile.native na pasta src/main/docker. Vamos usar o modo JVM para simplicidade e velocidade na demonstração.
+Isso permite que qualquer pessoa rode o sistema em qualquer máquina com apenas um comando, sem precisar configurar manualmente Java, Maven ou PostgreSQL localmente. É uma melhoria importante porque:
 
-1. 📦 Empacotar o Projeto Quarkus
-Antes de construir a imagem Docker, você precisa compilar seu projeto Quarkus para gerar o JAR executável.
+Garante ambiente padronizado entre desenvolvedores e produção.
+Facilita o deploy em servidores e nuvem.
+Simplifica o processo de inicialização: docker compose up e pronto!
 
-Abra o terminal na raiz do seu projeto Quarkus e execute o build:
+# Pré-requisitos
+Antes de começar, você precisa ter instalado em sua máquina:
 
-Bash
+Docker;
+Docker Compose
 
-./mvnw clean package
-# OU
-./gradlew clean build
-O Quarkus gera o pacote runner no modo "fast-jar" dentro do diretório target/quarkus-app/ (se estiver usando Maven) ou similar.
+# 1- Criando o Dockfile
+Dentro do diretório raiz do projeto (onde está o pom.xml), crie um arquivo chamado
+```
+# Etapa 1: Build da aplicação
+FROM maven:3.9.9-eclipse-temurin-17 AS build
+WORKDIR /app
 
-2. 📝 Dockerfile para a Aplicação Quarkus (Modo JVM)
-Crie um arquivo chamado Dockerfile na raiz do seu projeto (ou use o Dockerfile.jvm gerado em src/main/docker/, adaptando os caminhos se necessário).
+# Copia os arquivos do projeto
+COPY pom.xml .
+COPY src ./src
 
-Este Dockerfile fará um multi-stage build: ele usa uma imagem maior para o build e outra menor para a execução, resultando em uma imagem final leve.
+# Gera o pacote (JAR)
+RUN mvn clean package -DskipTests
 
-Dockerfile
+# Etapa 2: Executando o aplicativo
+FROM eclipse-temurin:17-jdk
+WORKDIR /app
 
-# Estágio de Build (Opcional, se o build não foi feito antes)
-# FROM maven:3.9.5-eclipse-temurin-17-alpine AS build
-# COPY . /build
-# WORKDIR /build
-# RUN mvn clean package -DskipTests
+# Copia o JAR gerado do build
+COPY --from=build /app/target/*-runner.jar app.jar
 
-# Estágio de Execução
-# Usando a imagem de execução base do Eclipse Temurin (JDK)
-FROM registry.access.redhat.com/ubi8/openjdk-17:1.15 AS runtime
-# Ou uma imagem OpenJDK oficial (menos otimizada que UBI, mas funcional)
-# FROM eclipse-temurin:17-jdk-jammy
-
-# O arquivo JAR executável do Quarkus está em 'target/quarkus-app'
-# Se o seu build estiver em 'target/quarkus-app/', use este caminho:
-COPY --chown=1001:0 target/quarkus-app /work/application
-
-WORKDIR /work/
-# O usuário 'jboss' (UID 1001) é comumente usado em imagens Red Hat para segurança
-# Garante que o usuário tem permissão para executar
-RUN chmod -R 775 application
-USER 1001
-
-# Expõe a porta padrão do Quarkus (8080)
+# Expõe a porta do Quarkus
 EXPOSE 8080
 
-# Comando para iniciar a aplicação Quarkus
-CMD ["java", "-jar", "application/quarkus-run.jar"]
-Nota: Se você estiver usando um projeto gerado pelo Quarkus, o Dockerfile.jvm já deve estar em src/main/docker/ e pode ser ligeiramente diferente, mas o conceito é o mesmo.
+# Comando para iniciar o aplicativo
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
 
-3. 📝 docker-compose.yml
-Crie um arquivo chamado docker-compose.yml na raiz do seu projeto. Este arquivo define dois serviços: sua aplicação Quarkus (app) e o banco de dados PostgreSQL (db).
-
-YAML
-
-version: '3.8'
+# 2-Criando o arquivo docker-compose.yml
+Na raiz do projeto, crie o arquivo docker-compose.yml:
+```
+yaml
+version: "3.8"
 
 services:
-  # Serviço da Aplicação Quarkus
-  app:
-    # Nome do container
-    container_name: quarkus-app
-    # Constrói a imagem Docker a partir do Dockerfile na pasta atual (o ponto '.')
-    build: .
-    # Mapeia a porta do container (8080) para a porta da sua máquina (8080)
-    ports:
-      - "8080:8080"
-    # Garante que o BD esteja pronto antes de iniciar a aplicação
-    depends_on:
-      - db
-    # Variáveis de ambiente que a aplicação Quarkus usará para conectar ao BD
+  postgres:
+    image: postgres:16
+    container_name: biblioteca-db
     environment:
-      # As propriedades de configuração do Quarkus devem ser definidas aqui
-      # Verifique seu arquivo application.properties para os nomes corretos
-      # Exemplo para a extensão Panache com JDBC:
-      #quarkus.datasource.db-kind: postgresql
-      #quarkus.datasource.username: ${POSTGRES_USER}
-      #quarkus.datasource.password: ${POSTGRES_PASSWORD}
-      #quarkus.datasource.jdbc.url: jdbc:postgresql://db:5432/${POSTGRES_DB}
-      
-      QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER}
-      QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-      # Usa o nome do serviço 'db' definido abaixo como hostname
-      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
-    
-    # Reinicia o container se ele parar (exceto se for manualmente interrompido)
-    restart: always
-
-  # Serviço do Banco de Dados PostgreSQL
-  db:
-    container_name: postgres-db
-    image: postgres:15-alpine # Imagem oficial do PostgreSQL
-    # Mapeia a porta do container (5432) para a porta da sua máquina (5432)
-    # Útil para acessar o BD com ferramentas externas como o DBeaver ou psql
+      POSTGRES_USER: biblioteca
+      POSTGRES_PASSWORD: biblioteca123
+      POSTGRES_DB: biblioteca_db
     ports:
       - "5432:5432"
-    # Variáveis de ambiente para configurar o PostgreSQL
-    environment:
-      # Use variáveis de ambiente para valores sensíveis
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    # Persistência de dados: mapeia um volume da sua máquina para o diretório de dados do BD
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: always
+    networks:
+      - biblioteca-net
 
-# Define o volume para persistir os dados do PostgreSQL
+  quarkus-app:
+    build: .
+    container_name: biblioteca-app
+    environment:
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/biblioteca_db
+      QUARKUS_DATASOURCE_USERNAME: biblioteca
+      QUARKUS_DATASOURCE_PASSWORD: biblioteca123
+      QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION: update
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    networks:
+      - biblioteca-net
+
+networks:
+  biblioteca-net:
+    driver: bridge
+
 volumes:
   postgres_data:
-4. 🔑 Arquivo de Variáveis de Ambiente (.env)
-Crie um arquivo .env na raiz do seu projeto para armazenar as variáveis usadas no docker-compose.yml.
+```
+# 3-Ajustando o aplication.properties
+No arquivo src/main/resources/application.properties, substitua (ou adicione) as variáveis de conexão para que funcionem com o container:
+```
+# Configurações do Banco de Dados
+quarkus.datasource.db-kind=postgresql
+quarkus.datasource.username=${QUARKUS_DATASOURCE_USERNAME}
+quarkus.datasource.password=${QUARKUS_DATASOURCE_PASSWORD}
+quarkus.datasource.jdbc.url=${QUARKUS_DATASOURCE_JDBC_URL}
 
-# Variáveis de Configuração do PostgreSQL
-POSTGRES_DB=minha_aplicacao_db
-POSTGRES_USER=quarkus_user
-POSTGRES_PASSWORD=uma_senha_forte
-Dica de Segurança: Adicione o arquivo .env ao seu .gitignore para não enviar senhas para repositórios públicos!
+# Porta da aplicação
+quarkus.http.port=8080
+```
+Essas variáveis são injetadas pelo docker-compose.yml automaticamente.
 
-5. 🚀 Subir a Aplicação e o Banco de Dados
-Com todos os arquivos prontos, você pode subir toda a sua infraestrutura isolada com um único comando:
-
-Bash
-
-docker compose up --build -d
-docker compose up: Inicia os serviços definidos no docker-compose.yml.
-
---build: Garante que a imagem Docker da sua aplicação Quarkus seja construída antes de iniciar o container.
-
--d: Executa em detached mode (em segundo plano).
-
-Sua aplicação Quarkus e seu banco de dados PostgreSQL estarão isolados e rodando!
-
-Para verificar se os containers estão rodando:
-
-Bash
-
-docker ps
-Para ver os logs da sua aplicação:
-
-Bash
-
-docker compose logs -f app
-Para derrubar os containers e remover a rede (mantendo os dados, por causa do volume):
-
-Bash
-
-docker compose down
-Para derrubar tudo, incluindo os dados persistidos:
-
-Bash
-
-docker compose down -v
-Qual seria o seu próximo passo? Gostaria de ajuda para:
-
-Ajustar o docker-compose.yml para um ambiente de produção?
-
-Configurar o Dockerfile para gerar uma imagem nativa do Quarkus (muito menor e mais rápida)?
-
-Integrar o docker-compose.yml com um arquivo de provisionamento inicial do PostgreSQL?
+# 4- Subindo os containers
+Agora basta rodar o comando:
+```
+docker compose up --build
+```
